@@ -1,0 +1,21 @@
+{
+  "name": "pokemon-go-event-webhook",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Self-hosted Pokémon GO event scraper with Discord webhook posts, Discord sign-in, a signup page and an admin panel, on Cloudflare Workers + D1.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler d1 migrations apply pokemon-go-events --local && wrangler dev",
+    "check": "node scripts/check.mjs",
+    "test": "node --import ./test/setup.mjs --test test/*.test.mjs",
+    "preview:graphics": "node scripts/preview-graphics.mjs",
+    "deploy": "wrangler d1 migrations apply pokemon-go-events --remote && wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.40.0"
+  },
+  "engines": {
+    "node": ">=22.5"
+  }
+}

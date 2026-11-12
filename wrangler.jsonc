@@ -1,0 +1,50 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Rename freely. The Worker answers on <name>.<your-subdomain>.workers.dev unless you add a route below.
+  "name": "pokemon-go-event-webhook",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-08-12",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  // "routes": [{ "pattern": "events.example.com", "custom_domain": true }],
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pokemon-go-events",
+      // Paste the id printed by: npx wrangler d1 create pokemon-go-events
+      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID",
+      "migrations_dir": "./migrations"
+    }
+  ],
+
+  // Every minute: scrape (cached, so most runs are cheap) and send any posts that are due.
+  "triggers": { "crons": ["* * * * *"] },
+
+  // Deliveries go through a queue so a slow or rate-limited Discord webhook never blocks the cron.
+  // Create once with: npx wrangler queues create pokemon-go-event-posts
+  //                   npx wrangler queues create pokemon-go-event-posts-dlq
+  "queues": {
+    "producers": [{ "binding": "EVENT_NOTIFICATION_QUEUE", "queue": "pokemon-go-event-posts" }],
+    "consumers": [
+      {
+        "queue": "pokemon-go-event-posts",
+        "max_batch_size": 5,
+        "max_batch_timeout": 5,
+        "max_retries": 4,
+        "dead_letter_queue": "pokemon-go-event-posts-dlq",
+        "max_concurrency": 3
+      }
+    ]
+  },
+
+  "observability": { "enabled": true, "logs": { "enabled": true, "head_sampling_rate": 0.1 } },
+
+  // Public, non-secret settings. Secrets go in with `wrangler secret put` (see README).
+  "vars": {
+    "SITE_NAME": "Pokémon GO Event Webhook",
+    "SITE_URL": "https://pokemon-go-event-webhook.YOUR-SUBDOMAIN.workers.dev",
+    "DEFAULT_TIME_ZONE": "America/New_York",
+    "SIGNUP_MODE": "open"
+  }
+}

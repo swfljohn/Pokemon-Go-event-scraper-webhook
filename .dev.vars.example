@@ -1,0 +1,20 @@
+# Copy to .dev.vars for `npm run dev` (never commit .dev.vars). In production use `wrangler secret put NAME`.
+SITE_URL=http://localhost:8787
+
+# Discord application (https://discord.com/developers/applications) -> OAuth2.
+# Add redirect: http://localhost:8787/api/discord-callback (and your production URL + /api/discord-callback)
+DISCORD_CLIENT_ID=
+DISCORD_CLIENT_SECRET=
+
+# Comma-separated Discord user IDs that get /admin (Discord: Settings -> Advanced -> Developer Mode, then right-click yourself -> Copy User ID)
+ADMIN_DISCORD_IDS=
+
+# Long random strings. Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+SESSION_SECRET=
+EVENT_WEBHOOK_ENCRYPTION_KEY=
+
+# Optional
+# ADMIN_API_TOKEN=            # lets scripts call /api/admin with "Authorization: Bearer <token>"
+# ADMIN_WEBHOOK_URL=          # a webhook that always receives the admin posts, without adding it in /admin
+# CLOUDFLARE_ACCOUNT_ID=      # these two turn on the PNG graphics (Cloudflare Browser Rendering)
+# BROWSER_RENDERING_TOKEN=
