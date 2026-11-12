@@ -13,8 +13,8 @@ webhooks on a schedule:
 Anyone can sign in with Discord on the home page and connect their own server's webhook. You manage everything from
 `/admin`.
 
-It runs on Cloudflare Workers, D1 and Queues. Light use fits the Workers Paid plan's included usage, and you don't
-need a server.
+It runs on Cloudflare Workers, D1 and Queues, so you don't need a server. Plan on the Workers Paid plan: Queues and
+D1 are available on the Free plan, but parsing the event sources is likely to exceed the Free plan's CPU limit.
 
 > Not affiliated with Niantic, Scopely, Nintendo, Game Freak or The Pokémon Company. Event data comes from public
 > community and official sources (see [Data sources](#data-sources)). Please respect their terms.
@@ -37,7 +37,7 @@ need a server.
 
 ## Setup (about 15 minutes)
 
-You need Node 22+, a Cloudflare account (Workers Paid for Queues), and a Discord application.
+You need Node 22+, a Cloudflare account (Workers Paid recommended, see above), and a Discord application.
 
 ```sh
 git clone https://github.com/<you>/pokemon-go-event-webhook && cd pokemon-go-event-webhook

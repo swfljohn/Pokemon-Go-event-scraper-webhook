@@ -195,6 +195,16 @@ test("the scheduled run queues the daily post and the queue delivers it to admin
   assert.equal(posts.filter(post => post.url === ADMIN_HOOK).length, 0, "no duplicate daily post");
 });
 
+test("disabling a user blocks their API access and pauses their posts", async () => {
+  const admin = await signIn(ADMIN_ID);
+  const user = await signIn(USER_ID);
+  const result = await (await call("/api/admin?action=update-user", { method: "POST", cookie: admin, body: { discordId: USER_ID, enabled: false } })).json();
+  assert.equal(result.user.enabled, false);
+  assert.equal((await call("/api/server-alerts", { cookie: user })).status, 403);
+  const row = env.DB.sqlite.prepare("SELECT paused FROM discord_event_webhook_subscribers WHERE discord_id = ?").get(USER_ID);
+  assert.equal(row.paused, 1);
+});
+
 test("public events page and API list scraped events", async () => {
   const page = await (await call("/events")).text();
   assert.match(page, /Test Community Day/);

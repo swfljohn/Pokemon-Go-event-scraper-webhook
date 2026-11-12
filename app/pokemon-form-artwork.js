@@ -9,7 +9,7 @@ import {
 const HOME_ARTWORK_ROOT = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/home";
 const POGO_SPRITE_ROOT = "https://raw.githubusercontent.com/PokeMiners/pogo_assets/master/Images/Pokemon";
 // Pin the artwork revision so an upstream main-branch update cannot silently
-// change an inventory image after it has been verified.
+// change an image after it has been verified.
 // 2026-10-30: moved to 7927b7d (2026-10-28) for Halloween 2026 forms (Sinistea wearing a bow); checked that existing forms still load.
 const UICONS_REVISION = "7927b7d7c00a92d420307515c98b5e5f230fe91d";
 const UICONS_POKEMON_ROOT = `https://raw.githubusercontent.com/WatWowMap/wwm-uicons/${UICONS_REVISION}/pokemon`;

@@ -1,7 +1,7 @@
 # Handoff
 
 This file explains how the project works, why it's built this way, and what's left to do. The event scraper, the
-posts and the graphics were pulled out of a larger private site that also ran game automation. That other code isn't
+posts and the graphics were pulled out of a larger private site. The rest of that site isn't
 here. A few event records still carry fields it used (`automation`, `plannerTargetRestrictions`, `nativeTargetLevel`).
 Nothing in this repo reads them, and it's safe to leave or delete them.
 
@@ -72,7 +72,8 @@ These rules came from running the original Discord feed. The code enforces them,
 - Every cookie-authenticated POST must come from this site's origin (`browserMutationIsTrusted`).
 - Users can only see and change their own subscription. Admin access comes only from `ADMIN_DISCORD_IDS` or
   `ADMIN_API_TOKEN`.
-- Access is checked again on every request, so disabling a user in `/admin` takes effect immediately.
+- Access is checked again on every request, so disabling a user in `/admin` blocks them immediately. It also pauses
+  their webhook so posts stop.
 - Custom bot names reject reserved and impersonating names such as "Pokémon GO Official", "Discord" or "Support"
   (`normalizeEventWebhookBranding`).
 

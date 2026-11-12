@@ -180,6 +180,10 @@ const ACTIONS = {
       remove: body.remove === true
     });
     if (body.remove === true) await deleteDiscordEventWebhookSubscriber(body.discordId).catch(() => false);
+    // Disabling a user also stops their posts; they can resume from the signup page once re-enabled.
+    if (body.enabled === false) {
+      await pauseDiscordEventWebhookSubscriber(body.discordId, { paused: true, reason: "Paused by an administrator." }).catch(() => null);
+    }
     return { user, users: (await readAccessConfig()).users };
   },
   async "pause-subscriber"(body) {

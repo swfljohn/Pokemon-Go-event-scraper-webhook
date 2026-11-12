@@ -1,4 +1,4 @@
-// Public event stops and private discovery destinations share these coordinates.
+// Public event stops and their mapped coordinates.
 // Official announcements confirm the rallies; coordinate lists are community mapped.
 const TOKYO_OFFICIAL = "https://pokemongo.com/gofest/tokyo/in-person-experiences?hl=fr";
 const TOKYO_COORDS = "https://www.reddit.com/r/PokemonGoSpoofing/comments/1tmyg6g/new_go_stamp_rally_coordinates/";
