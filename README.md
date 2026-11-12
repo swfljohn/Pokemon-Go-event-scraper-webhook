@@ -40,7 +40,7 @@ D1 are available on the Free plan, but parsing the event sources is likely to ex
 You need Node 22+, a Cloudflare account (Workers Paid recommended, see above), and a Discord application.
 
 ```sh
-git clone https://github.com/<you>/pokemon-go-event-webhook && cd pokemon-go-event-webhook
+git clone https://github.com/swfljohn/Pokemon-Go-event-scraper-webhook && cd Pokemon-Go-event-scraper-webhook
 npm install
 npx wrangler login
 ```
