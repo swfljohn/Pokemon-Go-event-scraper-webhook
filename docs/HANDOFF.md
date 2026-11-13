@@ -90,6 +90,36 @@ the real migrations. `test/worker.test.mjs` runs the whole flow:
 6. A scheduled run through the queue to the admin, local-only and subscriber webhooks, with no duplicates on the
    next run
 
+## Changes 2026-11-13
+
+Ported from the original site after a day of testing the graphics in real Discord servers.
+
+- **Graphic redesign** (`app/lib/daily-review.js`). The day name is the headline. The event with the most to show leads
+  with its banner. Each group of Pokémon is a row: a coloured label tile on the left, a grid of fixed-size sprites on
+  the right, and a gold star on any that can be shiny. Bonuses are tiles. Times are pills: filled gold means it starts
+  that day, outlined means it's ending. The picture is as tall as the content. The font is Poppins.
+- **Post order** (picture and text): main event, Raids, PvP changes, season/GO Pass, tomorrow, then "Also happening"
+  last.
+- **"local" next to global times.** Events that run on each player's clock now say so, e.g. "Starts 10 AM local".
+- **Grouped Pokémon in the feed.** Event details carry `pokemonGroups`: one entry per heading the source uses
+  (habitat hours, Mighty Pokémon by day, incense, eggs, raid tiers, day-by-day raid and Max Battle bosses), each
+  with `section`, `title`, `day` (`MM-DD` or empty), `note` and `pokemon` (`name`, `imageUrl`, `shiny`). The
+  parser is `detailPokemonGroups()` in `event-spawns.js`. It reads h3–h6 and short heading-like paragraphs, and
+  ignores "100% IV CP" stat lines. The detail cache schema went to 4, so pages are re-read once after deploying.
+- **Hand-reviewed groups win.** Big events where spawns rotate by the hour (GO Fest, Wild Area) get groups written
+  in `featured-event-details.js` from the official page, and those replace whatever the parser read. Wild Area 2026:
+  Global is the example (`wildAreaPokemonGroups`): Steel and Dragon habitat hours with their times, Mighty Pokémon
+  per day, 10 km eggs, 3-star and day-by-day 5-star raids, 6-star G-Max Duraludon, and day-by-day Max Battles. No
+  source splits Mighty Pokémon by hour, so they're labelled "every hour, 10 AM–6 PM local".
+- **Each day's post shows only that day's groups.** Undated groups always show; dated ones only on their day.
+- **Event page** (`app/pages/events-page.js`). A selected event (`/events?event=<id>`) shows its grouped Pokémon with
+  day pills, notes and shiny stars.
+- **Subscriber webhooks get the graphic.** Their daily post is now the same graphic + text as admin webhooks, in the
+  subscriber's time zone (`dailyReviewParts()` in `event-notifications.js`). Before, they got the older card-style
+  post.
+- **Cost check.** Rendering is billed by browser time. Each picture takes about 1–5 seconds, so a few hundred posts a
+  month use well under the 10 hours included with Workers Paid.
+
 ## Unfinished / next
 
 1. **Turn on the PNG graphics in production.** The design is complete and previewable (`npm run preview:graphics`,
@@ -100,7 +130,7 @@ the real migrations. `test/worker.test.mjs` runs the whole flow:
    events. Only Into the Wild is wired in (`featuredEventDetails`). To add the others, list their ids there after
    re-checking the sources.
 3. **Subscriber choice of daily mode.** Admin webhooks can pick `both`, `daily` or `local`. Subscriber webhooks always
-   get `both`. To add it, store `dailyPost` in the subscriber's `settings_json` and pass it where
+   get `both` (daily graphic, then the local-events post). To add it, store `dailyPost` in the subscriber's `settings_json` and pass it where
    `discord-event-webhook-notifications.js` builds messages.
 4. **Custom bot names for subscribers.** Admin webhooks post under the bot name set in `/admin`. Subscriber webhooks
    always post as the default name. The pieces exist: a per-user `customWebhookBranding` flag in `access.js`, and
@@ -108,5 +138,7 @@ the real migrations. `test/worker.test.mjs` runs the whole flow:
    allowed users and pass `username` in `discord-event-webhook-notifications.js` when posting.
 5. **Meta rankings refresh.** `event-meta-rankings.js` is a September 2026 snapshot of PvPoke and raid-attacker
    rankings. The generator wasn't carried over.
-6. **Data retention.** Delivery rows are pruned by the webhook queue code (90 days). There's no general D1 cleanup job
+6. **Hand-reviewed groups for the next big hourly event.** Copy the Wild Area pattern in `featured-event-details.js`
+   when the next GO Fest or Wild Area is announced.
+7. **Data retention.** Delivery rows are pruned by the webhook queue code (90 days). There's no general D1 cleanup job
    yet for old `event:detail:*` keys.

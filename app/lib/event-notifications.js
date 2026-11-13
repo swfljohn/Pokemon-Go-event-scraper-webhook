@@ -2053,19 +2053,23 @@ export function eventDigestMessages(events, kind, settings, target = {}, now = D
 // One render per time zone (and event set) per delivery run, shared by every destination.
 // The daily post for one destination. `dailyPost` (per webhook, see event-webhooks.js) picks the whole-day review,
 // the local-events-only post, or both, so a server can run a separate local-only channel.
+// The daily post (graphic + text, and the local-events post) for one time zone. Shared by admin webhooks and
+// subscriber webhooks, so everyone gets the same graphic in their own time zone.
+export async function dailyReviewParts(calendarEvents, timeZone = defaultTimeZone(), now = Date.now()) {
+  const aheadDays = reviewAheadDays(now, timeZone);
+  const review = buildDailyReview(calendarEvents, { now, timeZone, aheadDays });
+  const daily = await reviewDiscordMessages(dailyReviewText(review), dailyReviewHtml(review), { env: process.env });
+  const local = buildLocalReview(calendarEvents, { now, timeZone, aheadDays });
+  const localMessages = local
+    ? await reviewDiscordMessages(localReviewText(local), localReviewHtml(local), { env: process.env, imageName: "local-events.png", height: 700 })
+    : [];
+  return { daily, local: localMessages };
+}
+
 async function dailyReviewMessagesFor(progress, timeZone, now, dailyPost = "both") {
   progress.dailyReviewCache ||= new Map();
   if (!progress.dailyReviewCache.has(timeZone)) {
-    progress.dailyReviewCache.set(timeZone, (async () => {
-      const aheadDays = reviewAheadDays(now, timeZone);
-      const review = buildDailyReview(progress.calendarEvents, { now, timeZone, aheadDays });
-      const daily = await reviewDiscordMessages(dailyReviewText(review), dailyReviewHtml(review), { env: process.env });
-      const local = buildLocalReview(progress.calendarEvents, { now, timeZone, aheadDays });
-      const localMessages = local
-        ? await reviewDiscordMessages(localReviewText(local), localReviewHtml(local), { env: process.env, imageName: "local-events.png", height: 700 })
-        : [];
-      return { daily, local: localMessages };
-    })());
+    progress.dailyReviewCache.set(timeZone, dailyReviewParts(progress.calendarEvents, timeZone, now));
   }
   const { daily, local } = await progress.dailyReviewCache.get(timeZone);
   if (dailyPost === "daily") return daily;

@@ -54,7 +54,7 @@ const OFFICIAL_REGIONAL_FETCH_CONCURRENCY = 4;
 const RESEARCH_DISCOVERY_BATCH_SIZE = 3;
 // Bump this when parser output changes so an older sparse detail snapshot
 // cannot mask the richer article fields after deployment.
-const EVENT_DETAIL_CACHE_SCHEMA_VERSION = 3;
+const EVENT_DETAIL_CACHE_SCHEMA_VERSION = 4; // 4: pokemonGroups (2026-11-13)
 const EVENT_DETAIL_MAX_BYTES = 2_500_000;
 const EVENT_DETAIL_SNAPSHOT_PREFIX = "event:detail:";
 const EVENT_RESEARCH_TASK_SOURCE_SCHEMA_VERSION = 1;
@@ -1419,6 +1419,71 @@ const DETAIL_SECTION_TITLES = Object.freeze({
   showcases: "Showcases"
 });
 
+// Pokémon kept in the groups the article publishes them in (2026-11-13: the daily graphic should show what is
+// spawning the way the source lays it out): habitat hours, Mighty Pokémon by day, incense, egg distances, raid tiers
+// and day-by-day bosses. Sub-headings inside each section are read from h3-h6 and short heading-like paragraphs.
+const GROUP_SECTIONS = new Set(["spawns", "eggs", "raids", "max-battles", "incense", "features", "shiny"]);
+const MONTH_INDEX = { january: 0, february: 1, march: 2, april: 3, may: 4, june: 5, july: 6, august: 7, september: 8, october: 9, november: 10, december: 11 };
+export function pokemonGroupDay(title) {
+  const match = /^(?:(?:mon|tues|wednes|thurs|fri|satur|sun)day,?\s*)?(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})\b/i
+    .exec(String(title || "").trim());
+  return match ? `${String(MONTH_INDEX[match[1].toLowerCase()] + 1).padStart(2, "0")}-${match[2].padStart(2, "0")}` : "";
+}
+function detailPokemonGroups(blocks) {
+  const groups = [];
+  for (const block of blocks) {
+    const sectionId = block.id || cleanText(block.title, 80).toLocaleLowerCase().replace(/\s+/g, "-");
+    if (!GROUP_SECTIONS.has(sectionId)) continue;
+    const source = String(block.html || "");
+    const events = [];
+    for (const match of source.matchAll(/<(h[3-6])\b[^>]*>([\s\S]*?)<\/\1>|<p\b[^>]*>([\s\S]*?)<\/p>/gi)) {
+      const text = cleanText(htmlText(match[2] ?? match[3]), 120);
+      if (!text || /\bCP\b|\bIV\b|%/.test(text)) continue; // "100% IV CP" stat lines are not headings
+      const day = pokemonGroupDay(text);
+      if (!match[1] && !day && (text.length > 48 || /[.!?:]$/.test(text) || !/^[A-Z0-9]/.test(text))) continue;
+      events.push({ index: match.index, kind: "marker", text, day, level: match[1] ? Number(match[1][1]) - 2 : 2 });
+    }
+    for (const row of tagsWithClass(source, "li", "pkmn-list-item")) events.push({ index: row.index, kind: "pokemon", row });
+    events.sort((a, b) => a.index - b.index);
+    const stack = []; // [{ level, text }] non-day headings
+    let day = null; // { level, value, text }
+    let current = null;
+    for (const item of events) {
+      if (item.kind === "marker") {
+        if (item.day) {
+          // A day heading at the same depth as the current heading is its sibling: it replaces that heading.
+          while (stack.length && stack.at(-1).level >= item.level) stack.pop();
+          day = { level: item.level, value: item.day, text: item.text };
+        } else {
+          while (stack.length && stack.at(-1).level >= item.level) stack.pop();
+          if (day && day.level >= item.level) day = null;
+          stack.push({ level: item.level, text: item.text });
+        }
+        current = null;
+        continue;
+      }
+      const nameBlock = tagsWithClass(item.row.html, "div", "pkmn-name")[0];
+      const name = cleanText(htmlText(nameBlock?.html), 120);
+      if (!name) continue;
+      const imageTag = item.row.html.match(/<div\b[^>]*class=["'][^"']*\bpkmn-list-img\b[^"']*["'][^>]*>[\s\S]*?<img\b[^>]*>/i)?.[0] || "";
+      if (!current) {
+        current = { section: sectionId, title: stack.at(-1)?.text || cleanText(block.title, 100), parent: stack.length > 1 ? stack.at(-2).text : "", day: day?.value || "", dayLabel: day?.text || "", pokemon: [] };
+        groups.push(current);
+      }
+      if (current.pokemon.some(row => row.name.toLocaleLowerCase() === name.toLocaleLowerCase())) continue;
+      current.pokemon.push({ name, imageUrl: safeEventImage(htmlAttribute(imageTag, "src")), shiny: /class=["'][^"']*\bshiny-icon\b/i.test(item.row.html) });
+    }
+  }
+  // Same heading split by markup (e.g. two lists under one title): merge.
+  const merged = [];
+  for (const group of groups) {
+    const same = merged.find(row => row.section === group.section && row.title === group.title && row.parent === group.parent && row.day === group.day);
+    if (same) for (const row of group.pokemon) { if (!same.pokemon.some(item => item.name === row.name)) same.pokemon.push(row); }
+    else merged.push(group);
+  }
+  return merged.filter(group => group.pokemon.length).slice(0, 40).map(group => ({ ...group, pokemon: group.pokemon.slice(0, 60) }));
+}
+
 function sectionMatches(row, id) {
   return row?.id === id || row?.title?.toLocaleLowerCase() === id.replace(/-/g, " ");
 }
@@ -1513,6 +1578,7 @@ export function parseLeekDuckEventDetail(html, { url = "" } = {}) {
     raidBosses: publicPokemonRows(raidRows),
     maxBattleBosses: publicPokemonRows(maxRows),
     research: detailResearch(researchBlock?.html),
+    pokemonGroups: detailPokemonGroups(blocks),
     sections,
     specialBackground: /\b(?:special|location) background\b/i.test(searchableText),
     costumePokemon: /\b(?:costume|costumed|wearing a|wearing an)\b/i.test(searchableText),
@@ -2312,6 +2378,10 @@ export async function enrichCalendarEventDetail(event, { force = false, now = Da
       shinies,
       raidBosses,
       maxBattleBosses,
+      // Reviewed official groups win over groups read from the article.
+      pokemonGroups: Array.isArray(featuredEventDetails(base.id)?.details?.pokemonGroups) ? featuredEventDetails(base.id).details.pokemonGroups
+        : Array.isArray(parsedDetails.pokemonGroups) && parsedDetails.pokemonGroups.length
+          ? parsedDetails.pokemonGroups : Array.isArray(baseDetails.pokemonGroups) ? baseDetails.pokemonGroups : [],
       research: mergeResearchGroups(baseDetails.research || [], parsedDetails.research || []),
       researchMethods,
       ...(fieldResearch ? { researchDiscovery: fieldResearch } : baseDetails.researchDiscovery

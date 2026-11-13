@@ -36,6 +36,26 @@ function miniorShowerDetails(label, firstDay, lastDay) {
   };
 }
 
+// Hour-by-hour habitat blocks for big rotating events (2026-11-13: GO Fest / Wild Area style), built from the
+// reviewed official pools above so the event page and daily graphic show exactly what the publisher lists.
+function wildAreaPokemonGroups({ steel, dragons, mightyByDay, mightyAllDays = [], dates, maxTargets, raidTarget, eggs, fiveStarByDay = [], sixStarMax = [] }) {
+  const mon = (name, shiny = true) => ({ name, imageUrl: "", shiny });
+  const dayKey = date => date.slice(5);
+  const dayLabel = date => new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "UTC" });
+  return [
+    { section: "spawns", title: "Solid as Steel Hour", note: "10–11 AM · 12–1 PM · 2–3 PM · 4–5 PM local", parent: "Rotating habitat hours", day: "", dayLabel: "", pokemon: steel.map(name => mon(name)) },
+    { section: "spawns", title: "Daring as Dragons Hour", note: "11 AM–12 PM · 1–2 PM · 3–4 PM · 5–6 PM local", parent: "Rotating habitat hours", day: "", dayLabel: "", pokemon: dragons.map(name => mon(name)) },
+    ...(mightyAllDays.length ? [{ section: "spawns", title: "Mighty Pokémon", note: "Every hour, 10 AM–6 PM local", parent: "", day: "", dayLabel: "", pokemon: mightyAllDays.map(name => mon(name)) }] : []),
+    // Mighty Pokémon are not tied to a habitat hour: each day's lineup spawns 10 AM–6 PM (LeekDuck mighty page, 2026-11-13).
+    ...(mightyByDay || []).map((names, index) => ({ section: "spawns", title: "Mighty Pokémon", note: "Every hour, 10 AM–6 PM local", parent: "", day: dayKey(dates[index]), dayLabel: dayLabel(dates[index]), pokemon: names.map(name => mon(name)) })),
+    ...(eggs?.length ? [{ section: "eggs", title: "10 km Eggs", note: "Eggs obtained during the event", parent: "", day: "", dayLabel: "", pokemon: eggs.map(name => mon(name, false)) }] : []),
+    ...(raidTarget ? [{ section: "raids", title: "Three-Star Raids", note: "Every event day", parent: "", day: "", dayLabel: "", pokemon: [mon(raidTarget)] }] : []),
+    ...fiveStarByDay.map((names, index) => dates[index] ? { section: "raids", title: "Five-Star Raids", note: "", parent: "", day: dayKey(dates[index]), dayLabel: dayLabel(dates[index]), pokemon: names.map(name => mon(name)) } : null).filter(Boolean),
+    ...(sixStarMax.length ? [{ section: "max-battles", title: "Six-Star Max Battles", note: "Every event day", parent: "", day: "", dayLabel: "", pokemon: sixStarMax.map(name => mon(name)) }] : []),
+    ...maxTargets.map((name, index) => dates[index] ? { section: "max-battles", title: "Max Battles", note: "", parent: "", day: dayKey(dates[index]), dayLabel: dayLabel(dates[index]), pokemon: [mon(name)] } : null).filter(Boolean)
+  ];
+}
+
 function wildAreaGlobalDetails() {
   const sourceUrl = "https://pokemongo.com/en/gowildarea/global";
   const steel = ["Alolan Sandshrew", "Alolan Diglett", "Magnemite", "Shellder", "Onix", "Porygon", "Shuckle", "Skarmory",
@@ -69,11 +89,17 @@ function wildAreaGlobalDetails() {
     details: {
       spawns: wildTargets.map(name => ({ name })),
       maxBattleBosses: maxTargets.map(name => ({ name })),
-      raidBosses: [{ name: raidTarget, tier: 3 }],
+      raidBosses: [{ name: raidTarget, tier: 3 }, { name: "Zekrom", tier: 5 }, { name: "Kyurem (White)", tier: 5 }, { name: "Reshiram", tier: 5 }, { name: "Kyurem (Black)", tier: 5 }],
+      pokemonGroups: wildAreaPokemonGroups({ steel, dragons, mightyByDay: mighty, dates, maxTargets, raidTarget,
+        eggs: ["Honedge", "Klefki", "Drampa", "Duraludon"],
+        // Official GO Wild Area Global page + LeekDuck day split, checked 2026-11-13.
+        fiveStarByDay: [["Zekrom", "Kyurem (White)"], ["Reshiram", "Kyurem (Black)"]], sixStarMax: ["Gigantamax Duraludon"] }),
       shinies: [
         ...wildTargets.map(name => ({ name, methods: ["collector"] })),
         ...maxTargets.map(name => ({ name, methods: ["max"] })),
-        { name: raidTarget, methods: ["raider"] }
+        { name: raidTarget, methods: ["raider"] },
+        ...["Zekrom", "Kyurem (White)", "Reshiram", "Kyurem (Black)"].map(name => ({ name, methods: ["raider"] })),
+        { name: "Gigantamax Duraludon", methods: ["max"] }
       ],
       gameplayWindows,
       spawnSchedule: { sourceUrl, sourceKind: "official", verifiedDate: "2026-10-02", localTime: true,

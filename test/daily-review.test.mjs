@@ -18,11 +18,11 @@ test("sorts the day into live, raids and coming up, with tier labels and site li
   assert.equal(review.dateLabel, "Friday, October 30");
   assert.deepEqual(review.live.map(row => row.name), ["Halloween 2026 Part I"]);
   assert.equal(review.launch, null);
-  assert.match(review.live[0].status, /^ends Sun Nov 1, 10 AM$/);
+  assert.match(review.live[0].status, /^ends Sun Nov 1, 10 AM local$/);
   assert.deepEqual(review.raids.map(row => [row.tier, row.bosses.map(boss => boss.name)]),
     [["5-star", ["Giratina (Origin)"]], ["Shadow 5-star", ["Shadow Landorus (Incarnate)"]]]);
   assert.equal(review.raids[1].bosses[0].sprite?.shadow, true, "Shadow boss uses its base sprite with the shadow treatment");
-  assert.deepEqual(review.next.map(row => [row.name, row.starts]), [["Chandelure Super Mega Raid Day", "tomorrow 2 PM"]]);
+  assert.deepEqual(review.next.map(row => [row.name, row.starts]), [["Chandelure Super Mega Raid Day", "tomorrow 2 PM local"]]);
   assert.deepEqual(review.local.map(row => [row.name, row.when]), [["Venue Meetup", "last day, ends 8 PM"]]);
   assert.equal(review.next.some(row => row.name === "Later Event"), false, "look-ahead is tomorrow only");
   assert.equal("grade" in review.live[0], false, "grades are not shown");
@@ -187,7 +187,7 @@ test("evening posts cover the next day: Friday's daily is Saturday's", async () 
   assert.equal(review.dateLabel, "Saturday, October 31");
   assert.equal(review.heading, "Saturday in Pokémon GO");
   assert.deepEqual(review.live.map(row => row.name), ["Chandelure Super Mega Raid Day", "Halloween 2026 Part I"]);
-  assert.equal(review.live[0].status, "starts 2 PM");
+  assert.equal(review.live[0].status, "starts 2 PM local");
   const text = dailyReviewText(review);
   assert.match(text, /^\*\*Saturday in Pokémon GO · Saturday, October 31\*\*\n\n\*\*Saturday\*\*/);
   assert.doesNotMatch(text, /\btoday\b|\btomorrow\b/i, "no relative day words in a post read the next day");

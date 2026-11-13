@@ -22,7 +22,7 @@ import {
   DiscordWebhookDeliveryError,
   sendEventDigestWebhook
 } from "./discord-webhook.js";
-import { eventDigestMessages } from "./event-notifications.js";
+import { dailyReviewParts, eventDigestMessages } from "./event-notifications.js";
 import { fetchEventSpawns } from "./event-spawns.js";
 import { EVENT_COORDINATE_LINK_PROVIDERS } from "./event-webhooks.js";
 import { runtimeBinding } from "./runtime-context.js";
@@ -222,7 +222,10 @@ async function processClaimedDelivery(claim, payload, now) {
   const messageTime = plan.kind === "starting-soon"
     ? now
     : Number(delivery.scheduledFor) || now;
-  const messages = eventDigestMessages(plan.events, plan.kind, plan.settings, {
+  // Subscribers get the same daily graphic + text as admin webhooks, in their own time zone.
+  const messages = plan.kind === "today" && Array.isArray(payload?.calendarEvents)
+    ? await dailyReviewParts(payload.calendarEvents, plan.settings?.timeZone || undefined, messageTime).then(parts => [...parts.daily, ...parts.local])
+    : eventDigestMessages(plan.events, plan.kind, plan.settings, {
     type: "webhook",
     coordinateLinks: EVENT_COORDINATE_LINK_PROVIDERS
   }, messageTime);

@@ -122,6 +122,26 @@ const pokemonRow = (name, shinies, icons = new Map()) => ({
   caption: clean(name).replace(/\s+wearing\s+.+$/i, " (costume)").replace(/\s*\((Origin|Altered|Incarnate|Therian)\)$/i, " ($1)")
 });
 const firstSentence = text => clean(text).split(/(?<=\.)\s/)[0];
+// Published Pokémon groups for the review day (2026-11-13): undated groups always, dated ones only on their day.
+const NUMBER_WORDS = { one: "1", two: "2", three: "3", four: "4", five: "5", six: "6" };
+function groupLabel(group) {
+  const title = clean(group.title);
+  if (group.section === "spawns" && /^spawns$/i.test(title)) return "Wild";
+  return title.replace(/^(one|two|three|four|five|six)-star\b/i, (_, word) => `${NUMBER_WORDS[word.toLowerCase()]}-star`)
+    .replace(/^Ticket Holder Incense Encounters$/i, "Ticket incense").replace(/^Incense Encounters$/i, "Incense")
+    .replace(/\s+Raids?$/i, "").replace(/\s+Max Battles$/i, " Max");
+}
+function dayGroups(event, reviewDay, shinies) {
+  const groups = Array.isArray(event?.details?.pokemonGroups) ? event.details.pokemonGroups : [];
+  return groups.filter(group => group && (!group.day || group.day === reviewDay) && Array.isArray(group.pokemon) && group.pokemon.length)
+    .map(group => ({
+      section: clean(group.section), title: clean(group.title), label: groupLabel(group), note: clean(group.note),
+      list: group.pokemon.slice(0, 30).map(row => ({
+        ...pokemonRow(row.name, shinies, new Map([[clean(row.name).toLocaleLowerCase(), clean(row.imageUrl)]])),
+        shiny: Boolean(row.shiny) || shinies.has(clean(row.name).toLocaleLowerCase())
+      }))
+    }));
+}
 
 /**
  * Build the day review (2026-10-30): today's events are the main focus; a GO Pass or season banner only
@@ -141,6 +161,7 @@ export function buildDailyReview(calendarEvents, { now = Date.now(), timeZone = 
   const relative = !(aheadDays > 0);
   const todayStart = Math.floor(nowWall / (24 * HOUR)) * 24 * HOUR;
   const tomorrowStart = todayStart + 24 * HOUR;
+  const reviewDay = `${String(wallDate(todayStart).getUTCMonth() + 1).padStart(2, "0")}-${String(wallDate(todayStart).getUTCDate()).padStart(2, "0")}`;
   const horizon = tomorrowStart + 24 * HOUR; // look ahead: tomorrow only
   const base = siteUrl.replace(/\/+$/, "");
   const allRows = (Array.isArray(calendarEvents) ? calendarEvents : [])
@@ -154,8 +175,10 @@ export function buildDailyReview(calendarEvents, { now = Date.now(), timeZone = 
   const today = rows.filter(row => row.start < tomorrowStart && row.end > nowWall);
   const name = row => clean(row.event.name).split(" | ")[0].replace(/^Pokémon GO (?!× )/, "");
   const url = row => `${base}/events?event=${encodeURIComponent(row.event.calendarAliasOf || row.event.id || "")}`;
-  const status = row => row.start > nowWall ? `starts ${timeText(row.start)}`
-    : row.end < tomorrowStart + 3 * 24 * HOUR ? `ends ${whenText(row.end, todayStart, relative)}` : `until ${dayText(row.end)}`;
+  // Global events run on each player's own clock: say so next to the time (2026-11-13).
+  const localMark = row => row.event.localTime ? " local" : "";
+  const status = row => row.start > nowWall ? `starts ${timeText(row.start)}${localMark(row)}`
+    : row.end < tomorrowStart + 3 * 24 * HOUR ? `ends ${whenText(row.end, todayStart, relative)}${localMark(row)}` : `until ${dayText(row.end)}`;
 
   // New GO Pass or new season: banner on its first day only.
   const launchRow = today.filter(row => ["go-pass", "season"].includes(type(row)) && startsToday(row))
@@ -184,20 +207,22 @@ export function buildDailyReview(calendarEvents, { now = Date.now(), timeZone = 
       const wild = facts.spotlight?.name ? [facts.spotlight.name] : (Array.isArray(facts.spawns) ? facts.spawns : []).map(spawn => typeof spawn === "string" ? spawn : spawn?.name);
       return {
         name: name(row), type: typeLabel(row.event), url: url(row), image: clean(row.event.imageUrl), status: status(row),
-        wild: wild.filter(Boolean).slice(0, 8).map(value => pokemonRow(value, shinies, eventIcons(row.event))),
+        // Wild, eggs and Max Battles as the source groups them; raids go to the Raids panel.
+        groups: dayGroups(row.event, reviewDay, shinies).filter(group => ["spawns", "eggs", "max-battles", "incense"].includes(group.section)),
+        wild: wild.filter(Boolean).slice(0, 24).map(value => pokemonRow(value, shinies, eventIcons(row.event))),
         // Max Battle bosses up on the review day (a dated schedule wins over the whole-event list).
         max: (() => {
           const windows = Array.isArray(row.event.details?.maxBattleSchedule?.windows) ? row.event.details.maxBattleSchedule.windows : [];
           const names = windows.length ? windows.filter(window => eventWall(window.start, timeZone) < tomorrowStart && eventWall(window.end, timeZone) > todayStart)
             .flatMap(window => (window.bosses || []).map(boss => clean(boss?.name))) : facts.maxBattles;
-          return [...new Set(names.filter(Boolean))].slice(0, 8).map(value => pokemonRow(value, shinies, eventIcons(row.event)));
+          return [...new Set(names.filter(Boolean))].slice(0, 16).map(value => pokemonRow(value, shinies, eventIcons(row.event)));
         })(),
         // Raid Hours, Max Battle Hours and similar windows that fall on the review day.
         hours: (Array.isArray(row.event.details?.bonusWindows) ? row.event.details.bonusWindows : [])
           .map(window => ({ label: clean(window.label), start: eventWall(window.start, timeZone), end: eventWall(window.end, timeZone) }))
           .filter(window => window.label && window.start >= todayStart && window.start < tomorrowStart && window.end > nowWall)
-          .slice(0, 3).map(window => `${window.label} · ${timeText(window.start)}–${timeText(window.end)}`),
-        bonuses: facts.bonuses.slice(0, 2)
+          .slice(0, 3).map(window => `${window.label} · ${timeText(window.start)}–${timeText(window.end)}${localMark(row)}`),
+        bonuses: facts.bonuses.slice(0, 6)
       };
     });
 
@@ -211,12 +236,17 @@ export function buildDailyReview(calendarEvents, { now = Date.now(), timeZone = 
     const facts = eventFacts(row.event);
     const shinies = shinySet(facts);
     const icons = eventIcons(row.event);
-    for (const raid of facts.raids) {
+    const raidGroups = dayGroups(row.event, reviewDay, shinies).filter(group => group.section === "raids");
+    const raidList = (Array.isArray(row.event.details?.pokemonGroups) && row.event.details.pokemonGroups.some(group => group?.section === "raids"))
+      ? raidGroups.flatMap(group => group.list.map(item => ({ name: item.name, tier: /^(\d)-star/.exec(group.label)?.[1] || (/mega/i.test(group.label) ? null : null), mega: /mega/i.test(group.label), shadowGroup: /shadow/i.test(group.label) })))
+      : facts.raids;
+    for (const raid of raidList) {
       const stars = raid.tier || namedTier;
-      const tier = shadow ? `Shadow ${stars ? `${stars}-star` : ""}`.trim() : mega ? "Mega" : stars ? `${stars}-star` : "Raids";
+      const isShadow = shadow || raid.shadowGroup, isMega = mega || raid.mega;
+      const tier = isShadow ? `Shadow ${stars ? `${stars}-star` : ""}`.trim() : isMega ? "Mega" : stars ? `${stars}-star` : "Raids";
       let label = raid.name;
-      if (mega && !/^mega/i.test(label)) label = `Mega ${label}`;
-      if (shadow && !/^shadow/i.test(label)) label = `Shadow ${label}`;
+      if (isMega && !/^mega/i.test(label)) label = `Mega ${label}`;
+      if (isShadow && !/^shadow/i.test(label)) label = `Shadow ${label}`;
       const bucket = tiers.get(tier) || new Map();
       if (!bucket.has(label.toLocaleLowerCase())) bucket.set(label.toLocaleLowerCase(), { ...pokemonRow(label, shinies, new Map([[label.toLocaleLowerCase(), icons.get(label.toLocaleLowerCase()) || icons.get(clean(raid.name).toLocaleLowerCase())]])), shiny: shinies.has(raid.name.toLocaleLowerCase()) });
       tiers.set(tier, bucket);
@@ -235,7 +265,7 @@ export function buildDailyReview(calendarEvents, { now = Date.now(), timeZone = 
   const nextRows = rows.filter(row => row.start >= tomorrowStart && row.start < horizon && !["go-pass", "season", "go-battle-league", "raid-battles"].includes(type(row)))
     .sort((a, b) => a.start - b.start).slice(0, 3).map(row => ({
       name: name(row), type: typeLabel(row.event), url: url(row), image: clean(row.event.imageUrl),
-      starts: whenText(row.start, todayStart, relative), highlight: firstSentence(row.event.details?.ratingEvidence?.ratingOnly?.summary || "")
+      starts: `${whenText(row.start, todayStart, relative)}${localMark(row)}`, highlight: firstSentence(row.event.details?.ratingEvidence?.ratingOnly?.summary || "")
     }));
 
   // Location-only events (venue, city, regional): starting today or tomorrow, or on their last day today.
@@ -261,25 +291,36 @@ export function buildDailyReview(calendarEvents, { now = Date.now(), timeZone = 
 /** Plain-text Discord post (no emoji, Discord markdown only). */
 export function dailyReviewText(review) {
   const lines = [`**${review.heading || "Today in Pokémon GO"} · ${review.dateLabel}**`, ""];
-  if (review.live.length) {
-    lines.push(`**${review.todayLabel || "Today"}**`);
-    for (const row of review.live) {
+  let raidsDone = false;
+  const raidLines = () => {
+    if (raidsDone || !review.raids.length) return;
+    raidsDone = true;
+    lines.push("**Raids**");
+    for (const row of review.raids) lines.push(`${row.tier}:`, ...row.bosses.map(pokemonLine));
+    lines.push("");
+  };
+  const liveLines = rows => {
+    for (const row of rows) {
       lines.push(`**${row.name}** · ${row.status}`);
       for (const hour of row.hours || []) lines.push(hour);
-      if (row.wild.length) lines.push("Wild:", ...row.wild.map(pokemonLine));
-      if (row.max?.length) lines.push("Max Battles:", ...row.max.map(pokemonLine));
+      if (row.groups?.length) for (const group of row.groups) lines.push(`${group.label}${/hour|mighty/i.test(group.label) && group.note ? ` (${group.note})` : ""}:`, ...group.list.map(pokemonLine));
+      else {
+        if (row.wild.length) lines.push("Wild:", ...row.wild.map(pokemonLine));
+        if (row.max?.length) lines.push("Max Battles:", ...row.max.map(pokemonLine));
+      }
       if (row.bonuses.length) lines.push(`Bonuses: ${row.bonuses.join("; ")}`);
       lines.push("");
     }
+  };
+  // Same order as the graphic (2026-11-13): main event, raids, PvP, season, tomorrow, then also happening.
+  if (review.live.length) {
+    lines.push(`**${review.todayLabel || "Today"}**`);
+    liveLines(review.live.slice(0, 1));
   }
+  raidLines();
   if (review.pvp?.length) {
     lines.push("**PvP changes**");
     for (const row of review.pvp) lines.push(`${row.name} · ${row.status}`);
-    lines.push("");
-  }
-  if (review.raids.length) {
-    lines.push("**Raids**");
-    for (const row of review.raids) lines.push(`${row.tier}:`, ...row.bosses.map(pokemonLine));
     lines.push("");
   }
   if (review.launch) {
@@ -292,105 +333,139 @@ export function dailyReviewText(review) {
     for (const row of review.next) lines.push(`- **${row.name}** · ${row.starts}${row.highlight ? ` · ${row.highlight}` : ""}`);
     lines.push("");
   }
+  if (review.live.length > 1) {
+    lines.push("**Also happening**");
+    liveLines(review.live.slice(1));
+  }
   lines.push(`Times are local unless noted. Full calendar: <${review.siteUrl}/events>`);
   return lines.join("\n").trim();
 }
 
 const attr = value => escapeHtml(value);
-function spriteHtml(row, size = 84) {
-  const ring = row.shiny ? " shiny" : "";
+// One Pokémon tile: exact art on a soft tile, a gold star in the corner when it can be shiny, name underneath.
+function spriteHtml(row) {
   if (!row.sprite) return ""; // no stand-in pictures: a Pokémon without exact art is listed in the text post only
-  const art = `<img src="${attr(row.sprite.url)}" width="${size}" height="${size}" alt="" class="${row.sprite.shadow ? "shadow-art" : ""}" data-fallbacks="${attr((row.sprite.fallbacks || []).join(" "))}">`;
-  return `<figure class="mon${ring}"><div class="art">${art}</div><figcaption>${escapeHtml(row.caption || row.name)}</figcaption></figure>`;
+  const art = `<img src="${attr(row.sprite.url)}" alt="" class="${row.sprite.shadow ? "shadow-art" : ""}" data-fallbacks="${attr((row.sprite.fallbacks || []).join(" "))}">`;
+  return `<figure class="mon"><div class="art">${art}${row.shiny ? `<i class="star"></i>` : ""}</div><figcaption>${escapeHtml(row.caption || row.name)}</figcaption></figure>`;
+}
+// "starts ..." is a filled gold pill (something to plan for); "ends ..." / "until ..." is an outlined one.
+const whenPill = text => text ? `<span class="when${/^starts|^\w{3} \w{3} \d/i.test(text) ? " soon" : ""}">${escapeHtml(text)}</span>` : "";
+const bonusList = bonuses => bonuses?.length ? `<ul class="bonus">${bonuses.map(line => `<li>${escapeHtml(line)}</li>`).join("")}</ul>` : "";
+const REVIEW_CSS = `
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1080px;background:#0d0717}
+body{font-family:"Poppins","Inter","Segoe UI",system-ui,-apple-system,sans-serif;color:#fff;font-weight:500}
+.frame{width:1080px;padding:48px 44px 40px;display:flex;flex-direction:column;gap:26px;
+ background:radial-gradient(1000px 620px at -8% -10%,rgba(155,92,255,.5),transparent 62%),radial-gradient(760px 520px at 108% 104%,rgba(155,92,255,.2),transparent 60%),#0d0717}
+.masthead{display:flex;justify-content:space-between;align-items:center;font-size:22px;font-weight:700;color:#cdb6f7}
+.masthead b{font-weight:800;letter-spacing:.3em;color:#fff}
+h1{font-size:104px;line-height:.96;font-weight:800;letter-spacing:-.035em;margin-top:14px}
+h1.long{font-size:76px}
+.date{font-size:38px;font-weight:700;color:#ffd23f;margin-top:10px;letter-spacing:-.01em}
+h2{font-size:28px;font-weight:800;letter-spacing:-.01em;margin:2px 4px 14px}
+h3{font-size:32px;font-weight:700;line-height:1.14;letter-spacing:-.015em}
+.panel{background:#1a1029;border-radius:30px;padding:22px;box-shadow:inset 0 0 0 1px rgba(205,182,247,.14)}
+.when{display:inline-block;font-size:22px;font-weight:700;line-height:1;padding:10px 16px;border-radius:999px;color:#ffd23f;box-shadow:inset 0 0 0 2px rgba(255,210,63,.7);white-space:nowrap}
+.when.soon{background:#ffd23f;color:#1b1030;box-shadow:none}
+.when:first-letter{text-transform:uppercase}
+.lead{padding:0;overflow:hidden}
+.lead .banner{position:relative;height:230px;background:#241638}
+.lead .banner img{width:100%;height:100%;object-fit:cover;display:block}
+.lead .banner:after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(13,7,23,.05) 30%,rgba(26,16,41,.86) 78%,#1a1029)}
+.lead .banner .when{position:absolute;top:22px;right:22px;z-index:1;font-size:24px;padding:12px 18px;box-shadow:0 6px 22px rgba(0,0,0,.45)}
+.lead .banner .when:not(.soon){background:#1b1030;box-shadow:inset 0 0 0 2px #ffd23f,0 6px 22px rgba(0,0,0,.45)}
+.lead .banner h3{position:absolute;left:28px;right:28px;bottom:14px;z-index:1;font-size:50px;font-weight:800;letter-spacing:-.025em;line-height:1.05;text-shadow:0 2px 18px rgba(0,0,0,.6)}
+.lead .body{padding:0 22px 22px}
+.panel .band:first-of-type{margin-top:0}
+.lead .body .band:first-child{margin-top:6px}
+.event .top{display:grid;grid-template-columns:auto 1fr auto;gap:18px;align-items:center}
+.event .top h3{font-size:28px}
+.thumb{width:150px;height:84px;object-fit:cover;border-radius:14px;background:#241638;display:block}
+.band{display:grid;grid-template-columns:120px 1fr;gap:16px;align-items:start;background:#231537;border-radius:22px;padding:14px;margin-top:14px}
+.tag{min-height:88px;border-radius:16px;background:#9b5cff;color:#fff;font-size:17px;font-weight:800;line-height:1.12;display:grid;place-items:center;text-align:center;padding:6px}
+.tiers{display:flex;flex-wrap:wrap;gap:14px}
+.tiers .band{margin-top:0;flex:0 1 auto;max-width:100%}
+.tag small{display:block;font-size:12.5px;font-weight:600;line-height:1.25;margin-top:6px;opacity:.9}
+.tag.s-eggs{background:#2fb6a4}
+.tag.s-max-battles{background:#e0457b}
+.tag.s-incense{background:#5b7cfa}
+.tag.gold{background:#ffd23f;color:#1b1030}
+.hours{list-style:none;margin-top:14px;display:grid;gap:6px;font-size:22px;font-weight:600;color:#fff}
+.mons{display:flex;flex-wrap:wrap;gap:10px 8px}
+.mon{width:88px;text-align:center}
+.mon .art{position:relative;width:88px;height:88px;display:grid;place-items:center}
+.mon img{width:84px;height:84px;object-fit:contain;filter:drop-shadow(0 5px 8px rgba(0,0,0,.5))}
+.mon img.shadow-art{filter:drop-shadow(0 0 6px #8a2be2) drop-shadow(0 0 12px #5b1a9a)}
+.star{position:absolute;top:0;right:0;width:22px;height:22px;background:#ffd23f;clip-path:polygon(50% 0,62% 38%,100% 50%,62% 62%,50% 100%,38% 62%,0 50%,38% 38%);filter:drop-shadow(0 0 5px rgba(255,210,63,.8))}
+figcaption{font-size:13.5px;line-height:1.15;font-weight:600;color:#ece3fb;margin-top:4px;overflow-wrap:anywhere}
+.bonus{list-style:none;margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.bonus li{background:#231537;border-radius:16px;padding:14px 16px 14px 20px;font-size:19px;line-height:1.25;font-weight:600;color:#ece3fb;box-shadow:inset 5px 0 0 #9b5cff}
+.bonus li:last-child:nth-child(odd){grid-column:1/-1}
+.row{display:grid;grid-template-columns:150px 1fr;gap:20px;align-items:center}
+.row+.row,.event+.event{margin-top:22px;padding-top:22px;border-top:1px solid rgba(205,182,247,.14)}
+.row h3{font-size:27px;margin-bottom:10px}
+.row p,.where{font-size:20px;line-height:1.3;color:#d9c9f5;margin-top:10px}
+.pass{background:linear-gradient(120deg,rgba(255,210,63,.16),#1a1029 60%)}
+.pass-body{display:grid;grid-template-columns:240px 1fr;gap:24px;align-items:start}
+.pass-art{width:240px;height:135px;object-fit:cover;border-radius:18px;background:#241638}
+.pass h3{margin-bottom:12px}
+.pass .band{grid-column:1/-1}
+.coords{font:700 28px ui-monospace,Menlo,Consolas,monospace;color:#8fd3ff;margin-top:10px}
+.coords span{font:500 19px "Poppins",system-ui,sans-serif;color:#d9c9f5}
+.coords.none{font:500 20px "Poppins",system-ui,sans-serif;color:#b9aecb}
+footer{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:4px 4px 0}
+.legend{display:flex;gap:12px;align-items:center;font-size:20px;color:#cdb6f7;font-weight:600}
+.legend .star{position:static;flex:none}
+footer .url{font-size:30px;font-weight:800;letter-spacing:-.01em}`;
+const REVIEW_SCRIPT = `
+for (const img of document.querySelectorAll("img[data-fallbacks]")) img.addEventListener("error", () => {
+  const next = (img.dataset.fallbacks || "").split(" ").filter(Boolean);
+  if (next.length) { img.dataset.fallbacks = next.slice(1).join(" "); img.src = next[0]; return; }
+  const group = img.closest(".band");
+  (img.closest(".mon") || img).remove();
+  if (group && !group.querySelector(".mon")) group.remove();
+});
+for (const img of document.querySelectorAll("img.thumb, .banner img, img.pass-art")) img.addEventListener("error", () => { img.style.visibility = "hidden"; });`;
+// Page shell shared by every review graphic. Natural height: the picture is as tall as the day's content.
+function reviewPage({ title, date, body, legend }) {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=1080"><title>${escapeHtml(title)}</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&display=block"><style>${REVIEW_CSS}
+</style></head><body><div class="frame">
+<header><div class="masthead"><b>${escapeHtml(siteName())}</b><span>Pokémon GO</span></div><h1${title.length > 14 ? ` class="long"` : ""}>${escapeHtml(title)}</h1>${date ? `<p class="date">${escapeHtml(date)}</p>` : ""}</header>
+${body}
+<footer><span class="url">${escapeHtml(siteHost())}/events</span><span class="legend"><i class="star"></i>${escapeHtml(legend)}</span></footer>
+</div><script>${REVIEW_SCRIPT}
+</script></body></html>`;
 }
 
 /** Self-contained HTML (1080 wide) for the daily graphic, rendered to PNG by a headless browser. */
 export function dailyReviewHtml(review) {
-  const thumb = (image, cls = "thumb") => image ? `<img class="${cls}" src="${attr(image)}" alt="">` : `<span class="${cls} blank"></span>`;
-  const pictured = list => list.filter(item => item.sprite);
-  const launch = review.launch ? `
-  <section class="pass"><h2>${escapeHtml(review.launch.kind)}</h2><div class="pass-body">${thumb(review.launch.image, "pass-art")}
-    <div class="pass-copy"><h3>${escapeHtml(review.launch.name)}</h3><span class="key">${escapeHtml(review.launch.status)}</span>
-      <ul>${review.launch.highlights.map(line => `<li>${escapeHtml(line)}</li>`).join("")}</ul></div>
-    <div class="pass-mons">${review.launch.pokemon.filter(row => row.sprite).map(row => spriteHtml(row, 96)).join("")}</div></div>
-  </section>` : "";
-  const live = review.live.map(row => `
-    <article class="event">${thumb(row.image)}
-      <div class="event-copy"><div class="event-head"><h3>${escapeHtml(row.name)}</h3><span class="key">${escapeHtml(row.status)}</span></div>
-        ${pictured(row.wild).length ? `<div class="label">Wild</div><div class="mons">${pictured(row.wild).map(item => spriteHtml(item)).join("")}</div>` : ""}
-        ${row.bonuses.length ? `<p class="bonus">${row.bonuses.map(escapeHtml).join(" · ")}</p>` : ""}
-      </div></article>`).join("");
-  const raidCards = review.raids.flatMap(row => pictured(row.bosses).map(item => ({ tier: row.tier, item })));
-  const raids = raidCards.length ? `<div class="raid-grid">${raidCards.map(({ tier, item }) =>
-    `<div class="raid-card"><span class="tier">${escapeHtml(tier)}</span>${spriteHtml(item, 96)}</div>`).join("")}</div>` : "";
-  const next = review.next.map(row => `
-    <article class="next">${thumb(row.image, "thumb small")}<div><h3>${escapeHtml(row.name)}</h3>
-      <span class="key">${escapeHtml(row.starts)}</span>${row.highlight ? `<p>${escapeHtml(row.highlight)}</p>` : ""}</div></article>`).join("");
-  const local = review.local.map(row => `
-    <article class="next">${thumb(row.image, "thumb small")}<div><h3>${escapeHtml(row.name)}</h3>
-      <span class="key">${escapeHtml(row.when)}${row.localTime && /\d/.test(row.when) ? " local time" : ""}</span>${row.where ? `<p>${escapeHtml(row.where)}</p>` : ""}</div></article>`).join("");
-  const block = (title, body, cls = "") => body ? `<section class="${cls}"><h2>${title}</h2>${body}</section>` : "";
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=1080"><title>Today in Pokémon GO</title><style>
-*{box-sizing:border-box;margin:0;padding:0}
-html,body{width:1080px;background:#0b0612}
-body{font-family:"Inter","Segoe UI",system-ui,-apple-system,sans-serif;color:#fff}
-.frame{position:relative;width:1080px;min-height:1350px;padding:56px 56px 48px;display:flex;flex-direction:column;gap:22px;
- background:radial-gradient(900px 700px at 0% 0%,rgba(140,82,255,.38),transparent 60%),radial-gradient(700px 600px at 100% 100%,rgba(93,226,170,.14),transparent 60%),#0b0612}
-.frame:before{content:"";position:absolute;inset:16px;border:2px solid rgba(189,154,255,.35);border-radius:34px;pointer-events:none}
-header .top{display:flex;justify-content:space-between;align-items:baseline;gap:24px}
-.brand{font-size:24px;font-weight:900;letter-spacing:.32em;color:#c9a8ff}
-h1{font-size:64px;white-space:nowrap;line-height:1;font-weight:900;letter-spacing:-.02em;margin-top:12px}
-.date{font-size:30px;font-weight:800;color:#ffd84d;white-space:nowrap}
-section{background:rgba(22,14,36,.8);border:1px solid rgba(189,154,255,.28);border-radius:26px;padding:22px 26px}
-section>h2{font-size:21px;font-weight:900;letter-spacing:.2em;text-transform:uppercase;color:#b98cff;margin-bottom:14px}
-.key{color:#ffd84d;font-weight:800;font-size:24px;white-space:nowrap}
-.pass{border-color:rgba(255,216,77,.45);background:linear-gradient(120deg,rgba(255,216,77,.12),rgba(22,14,36,.85) 55%)}
-.pass-body{display:grid;grid-template-columns:220px 1fr auto;gap:22px;align-items:center}
-.pass-art{width:220px;height:124px;object-fit:cover;border-radius:16px;background:#1f1530}
-.pass h3{font-size:32px;font-weight:900;margin-bottom:4px}
-.pass ul{list-style:none;margin-top:8px;display:grid;gap:4px}
-.pass li{font-size:21px;color:#e6dcf4;font-weight:600}
-.pass-mons{display:flex;gap:6px}
-.event{display:grid;grid-template-columns:150px 1fr;gap:20px;padding:14px 0;border-top:1px solid rgba(189,154,255,.18)}
-.event:first-of-type{border-top:0;padding-top:0}
-.thumb{width:150px;height:96px;object-fit:cover;border-radius:14px;background:#1f1530}
-.thumb.small{width:120px;height:76px}
-.event-head{display:flex;justify-content:space-between;gap:16px;align-items:baseline}
-h3{font-size:30px;font-weight:850;line-height:1.12}
-.label{margin-top:8px;font-size:17px;font-weight:900;letter-spacing:.18em;color:#8fd3ff;text-transform:uppercase}
-.mons{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:4px}
-.mon{width:112px;display:grid;justify-items:center;gap:2px;text-align:center}
-.mon .art{width:92px;height:92px;display:grid;place-items:center;border-radius:50%;background:rgba(255,255,255,.05)}
-.mon.shiny .art{box-shadow:0 0 0 3px #ffd84d,0 0 18px rgba(255,216,77,.45)}
-.mon img{width:84px;height:84px;object-fit:contain}
-.mon img.shadow-art{filter:drop-shadow(0 0 6px #8a2be2) drop-shadow(0 0 12px #5b1a9a)}
-figcaption{font-size:16px;line-height:1.15;font-weight:700;color:#e6dcf4;max-height:38px;overflow:hidden}
-.bonus{margin-top:8px;font-size:20px;color:#cfc3e3;font-weight:600}
-.raid-grid{display:flex;flex-wrap:wrap;gap:14px 18px}
-.raid-card{display:grid;justify-items:center;gap:6px;width:150px}
-.raid-card .mon{width:150px}
-.tier{font-size:16px;font-weight:900;color:#ffd84d;text-transform:uppercase;letter-spacing:.08em;white-space:nowrap}
-.next{display:grid;grid-template-columns:120px 1fr;gap:18px;align-items:center;padding:10px 0}
-.next h3{font-size:27px}.next p{font-size:19px;color:#cfc3e3;margin-top:4px}
-.legend{display:flex;gap:10px;align-items:center;font-size:20px;color:#c9a8ff;font-weight:700}
-.legend i{width:22px;height:22px;border-radius:50%;box-shadow:0 0 0 3px #ffd84d;display:inline-block}
-footer{margin-top:auto;display:flex;justify-content:space-between;align-items:center;padding-top:6px}
-footer .url{color:#fff;font-size:32px;font-weight:900}
-</style></head><body><div class="frame">
-<header><div class="top"><span class="brand">${escapeHtml(siteName())}</span><span class="date">${escapeHtml(review.dateLabel)}</span></div><h1>${escapeHtml(review.heading || "Today in Pokémon GO")}</h1></header>
-${block(escapeHtml(review.todayLabel || "Today"), live)}
-${block("PvP changes", (review.pvp || []).map(row => `
-    <article class="next">${thumb(row.image, "thumb small")}<div><h3>${escapeHtml(row.name)}</h3><span class="key">${escapeHtml(row.status)}</span></div></article>`).join(""))}
-${block("Raids", raids)}
-${launch}
-${block(escapeHtml(review.nextLabel || "Tomorrow"), next)}
-<footer><span class="legend"><i></i>Gold ring: shiny possible · local times</span><span class="url">${escapeHtml(siteHost())}/events</span></footer>
-</div><script>
-for (const img of document.querySelectorAll("img[data-fallbacks]")) img.addEventListener("error", () => {
-  const next = (img.dataset.fallbacks || "").split(" ").filter(Boolean);
-  if (next.length) { img.dataset.fallbacks = next.slice(1).join(" "); img.src = next[0]; } else (img.closest(".raid-card") || img.closest(".mon") || img).remove();
-});
-</script></body></html>`;
+  const pictured = list => (list || []).filter(item => item.sprite);
+  const mons = (label, list, gold = false, section = "", note = "") => pictured(list).length ? `<div class="band"><span class="tag${gold ? " gold" : ""}${section ? ` s-${section}` : ""}">${escapeHtml(label)}${note ? `<small>${escapeHtml(note.replace(/ local$/, ""))}</small>` : ""}</span><div class="mons">${pictured(list).map(spriteHtml).join("")}</div></div>` : "";
+  const details = row => `${row.hours?.length ? `<ul class="hours">${row.hours.map(line => `<li>${escapeHtml(line)}</li>`).join("")}</ul>` : ""}${row.groups?.length ? row.groups.map(group => mons(group.label, group.list, false, group.section, /hour|mighty/i.test(group.label) ? group.note : "")).join("") : mons("Wild", row.wild) + mons("Max Battles", row.max, false, "max-battles")}${bonusList(row.bonuses)}`;
+  // The event with the most to show leads with its banner; the rest follow as compact rows.
+  const weight = row => (row.groups || []).reduce((sum, group) => sum + pictured(group.list).length, 0) + pictured(row.wild).length + pictured(row.max).length + (row.bonuses?.length ? 1 : 0);
+  const lead = review.live.filter(row => row.image && weight(row) > 0).sort((a, b) => weight(b) - weight(a))[0] || null;
+  const leadHtml = lead ? `<section class="panel lead"><div class="banner"><img src="${attr(lead.image)}" alt="">${whenPill(lead.status)}<h3>${escapeHtml(lead.name)}</h3></div><div class="body">${details(lead)}</div></section>` : "";
+  const rest = review.live.filter(row => row !== lead).map(row => `
+    <article class="event"><div class="top">${row.image ? `<img class="thumb" src="${attr(row.image)}" alt="">` : "<span></span>"}<h3>${escapeHtml(row.name)}</h3>${whenPill(row.status)}</div>${details(row)}</article>`).join("");
+  const raids = review.raids.map(row => pictured(row.bosses).length
+    ? mons(row.tier, row.bosses, true) : "").join("");
+  const rows = list => list.map(row => `
+    <article class="row">${row.image ? `<img class="thumb small" src="${attr(row.image)}" alt="">` : `<span class="thumb small"></span>`}
+      <div><h3>${escapeHtml(row.name)}</h3>${whenPill(row.status || row.starts)}${row.highlight ? `<p>${escapeHtml(row.highlight)}</p>` : ""}</div></article>`).join("");
+  const launch = review.launch ? `<section class="panel pass"><h2>${escapeHtml(review.launch.kind)}</h2><div class="pass-body">
+    ${review.launch.image ? `<img class="pass-art" src="${attr(review.launch.image)}" alt="">` : `<span class="pass-art"></span>`}
+    <div><h3>${escapeHtml(review.launch.name)}</h3>${whenPill(review.launch.status)}${bonusList(review.launch.highlights)}</div>
+    ${mons("Featured", review.launch.pokemon)}</div></section>` : "";
+  const panel = (title, body) => body ? `<section class="panel">${title ? `<h2>${title}</h2>` : ""}${body}</section>` : "";
+  const day = review.todayLabel || "Today";
+  return reviewPage({
+    title: day, date: clean(review.dateLabel).replace(new RegExp(`^${day},\\s*`), ""), legend: "Shiny possible. Times are your local time.",
+    // Raids sit right under the lead event (2026-11-13), above everything else happening that day.
+    body: [leadHtml, panel("Raids", raids ? `<div class="tiers">${raids}</div>` : ""), panel("PvP changes", rows(review.pvp || [])),
+      launch, panel(escapeHtml(review.nextLabel || "Tomorrow"), rows(review.next)), panel(lead && rest ? "Also happening" : "", rest)].filter(Boolean).join("\n")
+  });
 }
 
 // Local events only (2026-10-30): a second post for location-bound events that are live right now, with the
@@ -466,27 +541,20 @@ export function localReviewText(review) {
 
 // Shared list page for the Local, Week ahead and Season & GO Pass graphics: header, one card per event (picture,
 // when, where, coordinates, sprites), footer. The daily review keeps its own sectioned layout.
-function eventListHtml({ siteUrl, badge, title, section, events, coordinates = false, legend = "Gold ring: shiny possible · local times" }) {
-  const page = dailyReviewHtml({ dateLabel: "", siteUrl, launch: null, live: [], pvp: [], raids: [], next: [], local: [] });
+function eventListHtml({ badge, title, section, events, coordinates = false, legend = "Shiny possible. Times are your local time." }) {
   const cards = events.map(row => `
-    <article class="event">${row.image ? `<img class="thumb" src="${attr(row.image)}" alt="">` : `<span class="thumb"></span>`}
-      <div class="event-copy"><div class="event-head"><h3>${escapeHtml(row.name)}</h3></div>
-        <span class="key">${escapeHtml(row.when)}</span>
+    <article class="event"><div class="top">${row.image ? `<img class="thumb" src="${attr(row.image)}" alt="">` : "<span></span>"}<h3>${escapeHtml(row.name)}</h3>${whenPill(row.when)}</div><div>
         ${row.where ? `<p class="where">${escapeHtml(row.where)}</p>` : ""}
         ${coordinates ? (row.coordinates?.length ? row.coordinates.map(point => `<p class="coords">${escapeHtml(point.value)}${row.coordinates.length > 1 && point.label ? ` <span>${escapeHtml(point.label)}</span>` : ""}</p>`).join("") : `<p class="coords none">Coordinates not published</p>`) : ""}
-        ${row.pokemon?.length ? `<div class="mons">${row.pokemon.map(item => spriteHtml(item)).join("")}</div>` : ""}
+        ${row.pokemon?.length ? `<div class="band"><span class="tag">Featured</span><div class="mons">${row.pokemon.map(spriteHtml).join("")}</div></div>` : ""}
       </div></article>`).join("");
-  return page
-    .replace(/<header>[\s\S]*?<\/header>/, `<header><div class="top"><span class="brand">${escapeHtml(siteName())}</span><span class="date">${escapeHtml(badge)}</span></div><h1>${escapeHtml(title)}</h1></header>`)
-    .replace(/(<header>[\s\S]*?<\/header>)/, `$1\n<section><h2>${escapeHtml(section)}</h2>${cards}</section>`)
-    .replace("</style>", ".where{font-size:21px;color:#cfc3e3;margin-top:6px}.coords{font:800 26px ui-monospace,Menlo,Consolas,monospace;color:#8fd3ff;margin-top:6px}.coords span{font:600 18px Inter,system-ui,sans-serif;color:#cfc3e3}.coords.none{color:#b9aecb;font-size:20px}.event-copy .mons{margin-top:10px}.event-copy .key{display:block;white-space:normal}.event+.event{margin-top:6px}.frame{min-height:0}footer{margin-top:12px}\n</style>")
-    .replace("Gold ring: shiny possible · local times", legend);
+  return reviewPage({ title, date: badge, legend, body: `<section class="panel"><h2>${escapeHtml(section)}</h2>${cards}</section>` });
 }
 
 export function localReviewHtml(review) {
   if (!review) return "";
   return eventListHtml({ siteUrl: review.siteUrl, badge: review.dayLabel || "Live now", title: "Local events only", section: "In-person and location-only",
-    events: review.events.map(row => ({ ...row, when: row.ends })), coordinates: true, legend: "Gold ring: shiny possible · venue local times" });
+    events: review.events.map(row => ({ ...row, when: row.ends })), coordinates: true, legend: "Shiny possible. Times are the venue's local time." });
 }
 
 // Week ahead and Season & GO Pass (2026-10-30: every post in the new style). Takes the events the existing
@@ -532,7 +600,7 @@ export function buildEventListReview(events, kind, { now = Date.now(), timeZone 
       // Date-only events (midnight to 11:59 PM) read as days.
       image: clean(event.imageUrl), when: when.replace(/, 12 AM(?= –|$)/g, "").replace(/, 11:59 PM$/, ""), start,
       where: event.scope && event.scope !== "global" ? clean(event.location || "") : "",
-      pokemon: all.filter(row => row.sprite).slice(0, 8), list: all.slice(0, 12),
+      pokemon: all.filter(row => row.sprite).slice(0, 16), list: all.slice(0, 16),
       bonuses: (facts.bonuses.length ? facts.bonuses : facts.free).slice(0, 2)
     };
   }).sort((a, b) => (a.start || 0) - (b.start || 0));
